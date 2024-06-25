@@ -1,0 +1,78 @@
+stages:
+  - testbench
+  - build
+  - emulation
+
+variables:
+  SCHEDULER_PARAMETERS: "-A pc2-mitarbeiter -p normal -q cont -t 00:30:00 -n 2 -N 1"
+
+default:
+  tags:
+    - slurm
+  before_script:
+    - module load fpga xilinx/xrt toolchain foss lib zmqpp devel CMake
+
+tb_nfc:
+  stage: testbench
+  script:
+    - make run_nfc_tb
+
+tb_crc:
+  stage: testbench
+  script:
+    - make run_crc_counter_tb
+
+tb_config:
+  stage: testbench
+  script:
+    - make run_configuration_tb
+
+build_host:
+  stage: build
+  script:
+    - make host
+  artifacts:
+    paths:
+      - ./host_aurora_hls_test
+
+build_emulation:
+  stage: build
+  script:
+    - make xclbin TARGET=sw_emu
+  artifacts:
+    paths:
+      - ./aurora_hls_test_sw_emu.xclbin
+
+build_hlslib_emu:
+  stage: build
+  script:
+    - cd emulation/test
+    - mkdir build
+    - cd build
+    - cmake ..
+    - make
+  only:
+    changes:
+      - emulation/**
+      - .gitlab-ci.yml
+  artifacts:
+    paths:
+      - emulation/test/build/aurora_emu_test
+
+emulation_xrt:
+  stage: emulation
+  dependencies:
+    - build_host
+    - build_emulation
+  needs: ["build_emulation", "build_host"]
+  script:
+    - ./host_aurora_hls_test -p aurora_hls_test_sw_emu.xclbin -b 256 -i 20 -f 1
+
+emulation_hlslib:
+  stage: emulation
+  dependencies:
+    - build_hlslib_emu
+  needs: ["build_hlslib_emu"]
+  script:
+    - cd emulation/test/build
+    - ./aurora_emu_test
